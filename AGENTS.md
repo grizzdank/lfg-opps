@@ -59,21 +59,6 @@ python -m src.main --email   # Send digest
 pytest tests/
 ```
 
-## Current Status
-
-| Source | Status | Notes |
-|--------|--------|-------|
-| Freelancer.com | Ready | Uses official SDK, needs OAuth token |
-| Upwork | Stub | Awaiting API approval (~2 weeks) |
-
-## TODOs for Future Development
-
-- [ ] SQLite persistence for deduplication and history
-- [ ] Upwork GraphQL integration (after API approval)
-- [ ] Response tracking (applied → interview → contract)
-- [ ] Claude API integration for proposal drafts
-- [ ] Slack/Discord webhook notifications
-
 ## Conventions
 
 - Use `async/await` for all API calls
