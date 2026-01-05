@@ -166,7 +166,7 @@ class FreelancerSource(BaseSource):
                 error=str(e)
             )
 
-    def _normalize_project(self, proj: dict, users: dict) -> Opportunity:
+    def _normalize_project(self, proj: dict, users: dict | None) -> Opportunity:
         """Convert Freelancer project to normalized Opportunity."""
 
         project_id = str(proj.get("id", ""))
@@ -174,7 +174,7 @@ class FreelancerSource(BaseSource):
 
         # Get owner/client info
         client = None
-        if owner_id and owner_id in users:
+        if owner_id and users and owner_id in users:
             user = users[owner_id]
             reputation = user.get("employer_reputation", {})
 
@@ -198,17 +198,19 @@ class FreelancerSource(BaseSource):
 
         if proj.get("type") == "hourly":
             budget_type = BudgetType.HOURLY
-            hourly_min = proj.get("hourly_project_info", {}).get("rate_min")
-            hourly_max = proj.get("hourly_project_info", {}).get("rate_max")
+            hourly_info = proj.get("hourly_project_info") or {}
+            hourly_min = hourly_info.get("rate_min")
+            hourly_max = hourly_info.get("rate_max")
         else:
             budget_type = BudgetType.FIXED
-            budget_obj = proj.get("budget", {})
+            budget_obj = proj.get("budget") or {}
             budget_min = budget_obj.get("minimum")
             budget_max = budget_obj.get("maximum")
 
         # Extract skills from jobs
         skills = []
-        for job in proj.get("jobs", []):
+        jobs = proj.get("jobs") or []
+        for job in jobs:
             if isinstance(job, dict):
                 skills.append(job.get("name", ""))
             elif isinstance(job, str):
