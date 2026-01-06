@@ -59,6 +59,7 @@ class FreelancerSource(BaseSource):
         self,
         keywords: Optional[list[str]] = None,
         min_budget: Optional[float] = None,
+        max_budget: Optional[float] = 2500,  # Freelancer requires $99 verification to bid >$2500
         limit: int = 50,
         cursor: Optional[str] = None
     ) -> OpportunityBatch:
@@ -67,6 +68,7 @@ class FreelancerSource(BaseSource):
         Args:
             keywords: Search terms (will be OR'd together)
             min_budget: Minimum budget filter
+            max_budget: Maximum budget filter (default: $2500 for short projects)
             limit: Max results (API max is 100)
             cursor: Offset for pagination (as string)
 
@@ -91,9 +93,11 @@ class FreelancerSource(BaseSource):
                 or_search_query=True
             )
 
-            # Add budget filter if supported
+            # Add budget filters if supported
             if min_budget:
                 search_filter["min_avg_price"] = min_budget
+            if max_budget:
+                search_filter["max_avg_price"] = max_budget
 
             # Parse cursor to offset
             offset = int(cursor) if cursor else 0
@@ -109,7 +113,7 @@ class FreelancerSource(BaseSource):
                 "status": True,
             }
 
-            logger.info(f"Searching Freelancer.com: '{query}' (offset={offset})")
+            logger.info(f"Searching Freelancer.com: '{query}' (offset={offset}, max_budget=${max_budget})")
 
             result = search_projects(
                 session=session,
@@ -250,11 +254,13 @@ if __name__ == "__main__":
         print(f"Configured: {source.is_configured()}")
 
         if source.is_configured():
+            # Fetch short projects under $2500 (default max_budget)
             batch = await source.fetch_opportunities(
                 keywords=["AI", "automation", "MVP"],
+                max_budget=2500,  # Filter for short projects
                 limit=5
             )
-            print(f"Fetched {len(batch.opportunities)} opportunities")
+            print(f"Fetched {len(batch.opportunities)} short projects (<$2500)")
             for opp in batch.opportunities:
                 print(f"  - {opp.title} ({opp.budget_display})")
 
