@@ -59,7 +59,7 @@ class FreelancerSource(BaseSource):
         self,
         keywords: Optional[list[str]] = None,
         min_budget: Optional[float] = None,
-        max_budget: Optional[float] = 2500,
+        max_budget: Optional[float] = 2500,  # Freelancer requires $99 verification to bid >$2500
         limit: int = 50,
         cursor: Optional[str] = None
     ) -> OpportunityBatch:
