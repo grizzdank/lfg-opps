@@ -3,6 +3,7 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field
+from typing import List
 
 
 class Settings(BaseSettings):
@@ -19,6 +20,17 @@ class Settings(BaseSettings):
     upwork_client_id: str = Field(default="", description="Upwork OAuth client ID")
     upwork_client_secret: str = Field(default="", description="Upwork OAuth secret")
     upwork_access_token: str = Field(default="", description="Upwork access token")
+
+    # SAM.gov Federal Opportunities
+    sam_gov_api_key: str = Field(default="", description="SAM.gov API key from beta.sam.gov")
+    sam_gov_naics_codes: List[str] = Field(
+        default=["541611", "541618", "541519", "541512", "541690"],
+        description="NAICS codes: 541611=Admin Mgmt, 541618=Other Mgmt, 541519=Other IT, 541512=Computer Systems, 541690=Other Scientific"
+    )
+    sam_gov_set_asides: List[str] = Field(
+        default=["SDVOSB", "VOSB", "SBA"],
+        description="Set-aside types to prioritize"
+    )
 
     # Email
     smtp_host: str = Field(default="smtp.gmail.com", description="SMTP server host")
@@ -85,6 +97,11 @@ KEYWORDS = {
     "smb_focus": [
         "small business", "smb", "sme", "startup", "growing company",
         "scale", "efficiency", "cost effective", "budget conscious"
+    ],
+    "federal_consulting": [
+        "federal", "government", "agency", "dod", "defense",
+        "va", "veteran", "sdvosb", "8a", "hubzone",
+        "contract", "task order", "idiq", "bpa"
     ]
 }
 

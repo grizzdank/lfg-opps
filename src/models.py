@@ -10,6 +10,7 @@ class Source(str, Enum):
     """Supported opportunity sources."""
     FREELANCER = "freelancer"
     UPWORK = "upwork"
+    SAM_GOV = "samgov"
 
 
 class BudgetType(str, Enum):

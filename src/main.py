@@ -18,8 +18,9 @@ from dotenv import load_dotenv
 
 from .config import settings, KEYWORDS
 from .models import Source
-from .sources import FreelancerSource
+from .sources import FreelancerSource, SAMGovSource
 from .sources.upwork import UpworkSource
+from .sources.samgov import SAMGovSource
 from .scoring import OpportunityScorer
 from .output import run_dashboard, print_quick_list, console, send_digest
 
@@ -48,7 +49,8 @@ async def fetch_all_opportunities():
     """Fetch opportunities from all configured sources."""
     sources = [
         FreelancerSource(),
-        UpworkSource()
+        UpworkSource(),
+        SAMGovSource()
     ]
 
     all_opportunities = []
