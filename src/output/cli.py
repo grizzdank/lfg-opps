@@ -7,14 +7,13 @@ import webbrowser
 from datetime import datetime
 from typing import Optional
 
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
-from rich.layout import Layout
-from rich.live import Live
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
+from ..config import settings
 from ..models import Opportunity, ScoredResults, Source
 
 
@@ -25,9 +24,9 @@ def score_color(score: float) -> str:
     """Get color for score value."""
     if score >= 85:
         return "green"
-    elif score >= 70:
+    if score >= 70:
         return "yellow"
-    elif score >= 60:
+    if score >= 60:
         return "orange1"
     return "red"
 
@@ -36,7 +35,8 @@ def source_abbrev(source: Source) -> str:
     """Short source abbreviation."""
     return {
         Source.FREELANCER: "FL",
-        Source.UPWORK: "UW"
+        Source.UPWORK: "UW",
+        Source.SAM_GOV: "SAM",
     }.get(source, "??")
 
 
@@ -44,10 +44,9 @@ def format_age(hours: float) -> str:
     """Format age in human-readable form."""
     if hours < 1:
         return f"{int(hours * 60)}m"
-    elif hours < 24:
+    if hours < 24:
         return f"{int(hours)}h"
-    else:
-        return f"{int(hours / 24)}d"
+    return f"{int(hours / 24)}d"
 
 
 def create_summary_panel(results: ScoredResults) -> Panel:
@@ -55,19 +54,47 @@ def create_summary_panel(results: ScoredResults) -> Panel:
     high_score = sum(1 for o in results.opportunities if o.total_score >= 85)
     med_score = sum(1 for o in results.opportunities if 70 <= o.total_score < 85)
 
+    # Counts per source (always show, even if 0)
+    by_source = results.after_score_filter_by_source or {s.value: 0 for s in Source}
+    fl = by_source.get(Source.FREELANCER.value, 0)
+    uw = by_source.get(Source.UPWORK.value, 0)
+    sam = by_source.get(Source.SAM_GOV.value, 0)
+
+    fl_min_score = settings.fln_min_score if settings.fln_min_score is not None else settings.min_score
+    uw_min_budget = settings.upwork_min_budget if settings.upwork_min_budget is not None else settings.min_budget
+    uw_min_score = settings.upwork_min_score if settings.upwork_min_score is not None else settings.min_score
+
+    filters_line = (
+        f"FL: max≤${settings.fln_max_budget:,.0f}, min_score≥{fl_min_score:.0f} "
+        f"│ UW: min_budget≥${uw_min_budget:,.0f}, min_score≥{uw_min_score:.0f} "
+        f"│ SAM: min_budget≥${settings.sam_min_budget:,.0f}, min_score≥{settings.sam_min_score:.0f}, "
+        f"sdvo_only={str(settings.sam_sdvo_only).lower()}, naics={len(settings.sam_gov_naics_codes)}"
+    )
+
     text = Text()
-    text.append(f"Found: {results.total_fetched} ", style="white")
+    text.append(f"Fetched: {results.total_fetched}", style="white")
+    text.append("  ", style="white")
     text.append("│ ", style="dim")
-    text.append(f"Budget filter: {results.total_after_budget_filter} ", style="white")
+    text.append("  ", style="white")
+    text.append(f"After filters: {results.total_after_score_filter}", style="white")
+    text.append("\n")
+
+    text.append(f"By source: FL {fl}  UW {uw}  SAM {sam}", style="white")
+    text.append("\n")
+
+    text.append(filters_line, style="dim")
+    text.append("\n")
+
+    text.append(f"Score 85+: {high_score}", style="green bold")
+    text.append("  ", style="white")
     text.append("│ ", style="dim")
-    text.append(f"Score 85+: {high_score} ", style="green bold")
-    text.append("│ ", style="dim")
+    text.append("  ", style="white")
     text.append(f"Score 70-84: {med_score}", style="yellow")
 
     return Panel(
         text,
-        title=f"[bold]LFG Opportunity Finder[/bold] - {datetime.now().strftime('%b %d, %Y %H:%M')}",
-        border_style="blue"
+        title=f"[bold]LFG Opportunity Finder[/bold] - {datetime.now().strftime(%b %d, %Y %H:%M)}",
+        border_style="blue",
     )
 
 
@@ -77,7 +104,7 @@ def create_opportunity_table(opportunities: list[Opportunity], offset: int = 0) 
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
-        row_styles=["", "dim"]
+        row_styles=["", "dim"],
     )
 
     table.add_column("#", style="dim", width=3)
@@ -105,7 +132,7 @@ def create_opportunity_table(opportunities: list[Opportunity], offset: int = 0) 
             opp.budget_display,
             client_score,
             format_age(opp.age_hours),
-            source_abbrev(opp.source)
+            source_abbrev(opp.source),
         )
 
     return table
@@ -126,7 +153,10 @@ def show_opportunity_detail(opp: Opportunity) -> None:
 
     score_table.add_row(
         "Total Score",
-        Text(f"{opp.score_emoji} {opp.total_score:.0f}/100", style=score_color(opp.total_score) + " bold")
+        Text(
+            f"{opp.score_emoji} {opp.total_score:.0f}/100",
+            style=score_color(opp.total_score) + " bold",
+        ),
     )
     score_table.add_row("Budget Score", f"{opp.budget_score:.0f}/100")
     score_table.add_row("Client Score", f"{opp.client_score:.0f}/100")
@@ -230,7 +260,7 @@ def run_dashboard(results: ScoredResults, page_size: int = 10) -> None:
 
         if key == "q":
             break
-        elif key == "n" and end < total:
+        if key == "n" and end < total:
             page += 1
         elif key == "p" and page > 0:
             page -= 1
@@ -240,7 +270,7 @@ def run_dashboard(results: ScoredResults, page_size: int = 10) -> None:
             console.input("\n[dim]Press Enter to go back...[/dim]")
         elif key == "o" and selected_idx is not None:
             webbrowser.open(opportunities[selected_idx].url)
-            console.print(f"[green]Opened in browser[/green]")
+            console.print("[green]Opened in browser[/green]")
         elif key == "o" and page_opps:
             # Open first on page if none selected
             webbrowser.open(page_opps[0].url)
@@ -261,4 +291,6 @@ def print_quick_list(results: ScoredResults, limit: int = 10) -> None:
     table = create_opportunity_table(results.opportunities[:limit])
     console.print(table)
 
-    console.print(f"\n[dim]Showing top {min(limit, len(results.opportunities))} of {len(results.opportunities)} opportunities[/dim]")
+    console.print(
+        f"\n[dim]Showing top {min(limit, len(results.opportunities))} of {len(results.opportunities)} opportunities[/dim]"
+    )

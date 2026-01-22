@@ -1,9 +1,10 @@
 """Configuration management for LFG Opportunity Finder."""
 
 from pathlib import Path
-from pydantic_settings import BaseSettings
-from pydantic import Field
 from typing import List
+
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -13,7 +14,7 @@ class Settings(BaseSettings):
     fln_oauth_token: str = Field(default="", description="Freelancer OAuth token")
     fln_url: str = Field(
         default="https://www.freelancer.com",
-        description="Freelancer API URL"
+        description="Freelancer API URL",
     )
 
     # Upwork
@@ -23,13 +24,23 @@ class Settings(BaseSettings):
 
     # SAM.gov Federal Opportunities
     sam_gov_api_key: str = Field(default="", description="SAM.gov API key from beta.sam.gov")
+    # Back-compat field name (SAM_GOV_NAICS_CODES) + new env var name (SAM_NAICS_CODES)
     sam_gov_naics_codes: List[str] = Field(
         default=["541611", "541618", "541519", "541512", "541690"],
-        description="NAICS codes: 541611=Admin Mgmt, 541618=Other Mgmt, 541519=Other IT, 541512=Computer Systems, 541690=Other Scientific"
+        validation_alias=AliasChoices("SAM_NAICS_CODES", "SAM_GOV_NAICS_CODES"),
+        description=(
+            "NAICS codes: 541611=Admin Mgmt, 541618=Other Mgmt, 541519=Other IT, "
+            "541512=Computer Systems, 541690=Other Scientific"
+        ),
     )
     sam_gov_set_asides: List[str] = Field(
         default=["SDVOSB", "VOSB", "SBA"],
-        description="Set-aside types to prioritize"
+        description="Set-aside types to prioritize",
+    )
+    sam_sdvo_only: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SAM_SDVO_ONLY", "SAM_GOV_SDVO_ONLY"),
+        description="If true, restrict SAM.gov results to SDVOSB set-asides only",
     )
 
     # Email
@@ -40,13 +51,50 @@ class Settings(BaseSettings):
     email_to: str = Field(default="", description="Recipient email")
     email_from: str = Field(
         default="LFG Opportunity Finder <noreply@lfgconsultants.com>",
-        description="Sender email"
+        description="Sender email",
     )
 
-    # Scoring
+    # Scoring (global defaults)
     min_budget: float = Field(default=2500, description="Minimum project budget")
     min_score: float = Field(default=60, description="Minimum score to surface")
     max_results_per_run: int = Field(default=50, description="Max results per API call")
+
+    # Per-source filtering thresholds (fall back to MIN_BUDGET/MIN_SCORE when not set)
+    # Freelancer.com: hard cap for fixed-price projects; bids >$2500 require $99 verification.
+    fln_max_budget: float = Field(
+        default=2500,
+        validation_alias=AliasChoices("FLN_MAX_BUDGET"),
+        description="Freelancer.com hard cap: exclude projects with budgets above this amount",
+    )
+    fln_min_score: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("FLN_MIN_SCORE"),
+        description="Freelancer.com minimum score; defaults to MIN_SCORE when unset",
+    )
+
+    # Upwork: use explicit thresholds when configured.
+    upwork_min_budget: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("UPWORK_MIN_BUDGET"),
+        description="Upwork minimum budget; defaults to MIN_BUDGET when unset",
+    )
+    upwork_min_score: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("UPWORK_MIN_SCORE"),
+        description="Upwork minimum score; defaults to MIN_SCORE when unset",
+    )
+
+    # SAM.gov: default to showing everything that matches keywords/NAICS.
+    sam_min_budget: float = Field(
+        default=0,
+        validation_alias=AliasChoices("SAM_MIN_BUDGET"),
+        description="SAM.gov minimum budget; default 0 because budget is often missing",
+    )
+    sam_min_score: float = Field(
+        default=0,
+        validation_alias=AliasChoices("SAM_MIN_SCORE"),
+        description="SAM.gov minimum score; default 0 to show all matching opportunities",
+    )
 
     # Weights (must sum to 1.0)
     budget_weight: float = Field(default=0.4, description="Budget score weight")
@@ -78,31 +126,80 @@ settings = Settings()
 # Keywords for scoring - organized by service area
 KEYWORDS = {
     "ai_workflow": [
-        "ai", "artificial intelligence", "machine learning", "ml",
-        "automation", "workflow", "automate", "chatbot", "gpt",
-        "claude", "llm", "generative ai", "gen ai", "ai agent",
-        "intelligent automation", "rpa", "process automation"
+        "ai",
+        "artificial intelligence",
+        "machine learning",
+        "ml",
+        "automation",
+        "workflow",
+        "automate",
+        "chatbot",
+        "gpt",
+        "claude",
+        "llm",
+        "generative ai",
+        "gen ai",
+        "ai agent",
+        "intelligent automation",
+        "rpa",
+        "process automation",
     ],
     "mvp_development": [
-        "mvp", "minimum viable product", "prototype", "rapid development",
-        "startup", "proof of concept", "poc", "quick turnaround",
-        "fast development", "agile", "lean", "sprint"
+        "mvp",
+        "minimum viable product",
+        "prototype",
+        "rapid development",
+        "startup",
+        "proof of concept",
+        "poc",
+        "quick turnaround",
+        "fast development",
+        "agile",
+        "lean",
+        "sprint",
     ],
     "change_management": [
-        "change management", "ocm", "organizational change",
-        "digital transformation", "transformation", "adoption",
-        "training", "process improvement", "erp", "crm",
-        "implementation", "migration", "rollout"
+        "change management",
+        "ocm",
+        "organizational change",
+        "digital transformation",
+        "transformation",
+        "adoption",
+        "training",
+        "process improvement",
+        "erp",
+        "crm",
+        "implementation",
+        "migration",
+        "rollout",
     ],
     "smb_focus": [
-        "small business", "smb", "sme", "startup", "growing company",
-        "scale", "efficiency", "cost effective", "budget conscious"
+        "small business",
+        "smb",
+        "sme",
+        "startup",
+        "growing company",
+        "scale",
+        "efficiency",
+        "cost effective",
+        "budget conscious",
     ],
     "federal_consulting": [
-        "federal", "government", "agency", "dod", "defense",
-        "va", "veteran", "sdvosb", "8a", "hubzone",
-        "contract", "task order", "idiq", "bpa"
-    ]
+        "federal",
+        "government",
+        "agency",
+        "dod",
+        "defense",
+        "va",
+        "veteran",
+        "sdvosb",
+        "8a",
+        "hubzone",
+        "contract",
+        "task order",
+        "idiq",
+        "bpa",
+    ],
 }
 
 # Flatten for quick lookup

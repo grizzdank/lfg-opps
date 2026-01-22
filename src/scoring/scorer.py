@@ -4,10 +4,9 @@ Combines budget, client quality, and keyword scores into a composite score.
 """
 
 import logging
-from typing import Optional
 
-from ..models import Opportunity, ScoredResults, BudgetType
-from ..config import settings, ALL_KEYWORDS, KEYWORDS
+from ..config import KEYWORDS, settings
+from ..models import BudgetType, Opportunity, ScoredResults, Source
 
 logger = logging.getLogger(__name__)
 
@@ -25,25 +24,77 @@ class OpportunityScorer:
 
     def __init__(
         self,
-        budget_weight: float = None,
-        client_weight: float = None,
-        keyword_weight: float = None,
-        min_budget: float = None,
-        min_score: float = None
+        budget_weight: float | None = None,
+        client_weight: float | None = None,
+        keyword_weight: float | None = None,
+        min_budget: float | None = None,
+        min_score: float | None = None,
     ):
+        # Global weights
         self.budget_weight = budget_weight or settings.budget_weight
         self.client_weight = client_weight or settings.client_weight
         self.keyword_weight = keyword_weight or settings.keyword_weight
-        self.min_budget = min_budget or settings.min_budget
-        self.min_score = min_score or settings.min_score
+
+        # Global defaults (used as fallbacks when per-source thresholds are unset)
+        self.min_budget = min_budget if min_budget is not None else settings.min_budget
+        self.min_score = min_score if min_score is not None else settings.min_score
 
         # Validate weights sum to 1.0
         total = self.budget_weight + self.client_weight + self.keyword_weight
         if abs(total - 1.0) > 0.01:
-            logger.warning(f"Weights sum to {total}, not 1.0. Normalizing...")
+            logger.warning("Weights sum to %s, not 1.0. Normalizing...", total)
             self.budget_weight /= total
             self.client_weight /= total
             self.keyword_weight /= total
+
+    def _estimated_budget(self, opp: Opportunity) -> float:
+        """Best-effort comparable budget number for filtering.
+
+        - FIXED: uses budget_max then budget_min.
+        - HOURLY: estimates as hourly_rate * 40.
+        - UNKNOWN/missing: returns 0.
+        """
+        if opp.budget_type == BudgetType.HOURLY:
+            hourly = opp.hourly_max or opp.hourly_min or 0
+            return float(hourly) * 40
+
+        if opp.budget_type == BudgetType.FIXED:
+            budget = opp.budget_max if opp.budget_max is not None else (opp.budget_min or 0)
+            return float(budget or 0)
+
+        # UNKNOWN
+        budget = opp.budget_max if opp.budget_max is not None else (opp.budget_min or 0)
+        return float(budget or 0)
+
+    def _min_budget_for_source(self, source: Source) -> float:
+        if source == Source.SAM_GOV:
+            return settings.sam_min_budget
+        if source == Source.UPWORK:
+            return settings.upwork_min_budget if settings.upwork_min_budget is not None else self.min_budget
+        # Freelancer (and default)
+        return self.min_budget
+
+    def _min_score_for_source(self, source: Source) -> float:
+        if source == Source.SAM_GOV:
+            return settings.sam_min_score
+        if source == Source.UPWORK:
+            return settings.upwork_min_score if settings.upwork_min_score is not None else self.min_score
+        if source == Source.FREELANCER:
+            return settings.fln_min_score if settings.fln_min_score is not None else self.min_score
+        return self.min_score
+
+    def _passes_source_budget_filters(self, opp: Opportunity) -> bool:
+        est = self._estimated_budget(opp)
+
+        # Freelancer hard cap (configurable)
+        if opp.source == Source.FREELANCER:
+            cap = settings.fln_max_budget
+            if cap is not None and est and est > cap:
+                return False
+
+        # Minimum budgets (per-source)
+        min_budget = self._min_budget_for_source(opp.source)
+        return est >= min_budget
 
     def score_budget(self, opp: Opportunity) -> float:
         """Score based on project budget. Returns 0-100.
@@ -65,32 +116,30 @@ class OpportunityScorer:
 
             if budget >= 25000:
                 return 100
-            elif budget >= 10000:
+            if budget >= 10000:
                 return 95
-            elif budget >= 5000:
+            if budget >= 5000:
                 return 80
-            elif budget >= 2500:
+            if budget >= 2500:
                 return 60
-            elif budget >= 1000:
+            if budget >= 1000:
                 return 40
-            else:
-                return 20
+            return 20
 
-        elif opp.budget_type == BudgetType.HOURLY:
+        if opp.budget_type == BudgetType.HOURLY:
             rate = opp.hourly_max or opp.hourly_min or 0
 
             if rate >= 100:
                 return 100
-            elif rate >= 75:
+            if rate >= 75:
                 return 95
-            elif rate >= 50:
+            if rate >= 50:
                 return 85
-            elif rate >= 35:
+            if rate >= 35:
                 return 70
-            elif rate >= 25:
+            if rate >= 25:
                 return 50
-            else:
-                return 30
+            return 30
 
         # Unknown budget type
         return 50  # Neutral score
@@ -151,8 +200,15 @@ class OpportunityScorer:
         # Location bonus (0-15 points)
         if client.location:
             location = client.location.lower()
-            premium_locations = ["united states", "united kingdom", "canada",
-                               "australia", "germany", "netherlands", "switzerland"]
+            premium_locations = [
+                "united states",
+                "united kingdom",
+                "canada",
+                "australia",
+                "germany",
+                "netherlands",
+                "switzerland",
+            ]
             if any(loc in location for loc in premium_locations):
                 score += 15
 
@@ -168,7 +224,7 @@ class OpportunityScorer:
         skills_text = " ".join(opp.skills).lower()
         combined = f"{text} {skills_text}"
 
-        matched = []
+        matched: list[str] = []
         category_matches = {cat: False for cat in KEYWORDS}
 
         for category, keywords in KEYWORDS.items():
@@ -198,9 +254,9 @@ class OpportunityScorer:
 
         # Composite score
         opp.total_score = (
-            opp.budget_score * self.budget_weight +
-            opp.client_score * self.client_weight +
-            opp.keyword_score * self.keyword_weight
+            opp.budget_score * self.budget_weight
+            + opp.client_score * self.client_weight
+            + opp.keyword_score * self.keyword_weight
         )
 
         return opp
@@ -209,33 +265,35 @@ class OpportunityScorer:
         self,
         opportunities: list[Opportunity],
         apply_budget_filter: bool = True,
-        apply_score_filter: bool = True
+        apply_score_filter: bool = True,
     ) -> ScoredResults:
         """Score all opportunities and apply filters.
 
+        Per-source thresholds are applied so that one markets heuristics dont
+        suppress another.
+
         Args:
             opportunities: Raw opportunities to score
-            apply_budget_filter: Remove opps below min_budget
-            apply_score_filter: Remove opps below min_score
+            apply_budget_filter: Apply per-source budget filters (min budget + Freelancer cap)
+            apply_score_filter: Apply per-source min score filters
 
         Returns:
             ScoredResults with filtered, sorted opportunities
         """
         total_fetched = len(opportunities)
 
+        # Counts always include known sources, even if 0.
+        fetched_by_source = {s.value: 0 for s in Source}
+        for opp in opportunities:
+            fetched_by_source[opp.source.value] = fetched_by_source.get(opp.source.value, 0) + 1
+
         # Budget filter first (before scoring to save computation)
         if apply_budget_filter:
-            filtered = []
-            for opp in opportunities:
-                budget = opp.budget_max or opp.budget_min or 0
-                if opp.budget_type == BudgetType.HOURLY:
-                    # Estimate based on 40 hours
-                    hourly = opp.hourly_max or opp.hourly_min or 0
-                    budget = hourly * 40
+            opportunities = [o for o in opportunities if self._passes_source_budget_filters(o)]
 
-                if budget >= self.min_budget:
-                    filtered.append(opp)
-            opportunities = filtered
+        after_budget_by_source = {s.value: 0 for s in Source}
+        for opp in opportunities:
+            after_budget_by_source[opp.source.value] = after_budget_by_source.get(opp.source.value, 0) + 1
 
         total_after_budget = len(opportunities)
 
@@ -243,9 +301,17 @@ class OpportunityScorer:
         for opp in opportunities:
             self.score(opp)
 
-        # Score filter
+        # Score filter (per-source)
         if apply_score_filter:
-            opportunities = [o for o in opportunities if o.total_score >= self.min_score]
+            opportunities = [
+                o
+                for o in opportunities
+                if o.total_score >= self._min_score_for_source(o.source)
+            ]
+
+        after_score_by_source = {s.value: 0 for s in Source}
+        for opp in opportunities:
+            after_score_by_source[opp.source.value] = after_score_by_source.get(opp.source.value, 0) + 1
 
         total_after_score = len(opportunities)
 
@@ -253,14 +319,18 @@ class OpportunityScorer:
         opportunities.sort(key=lambda o: o.total_score, reverse=True)
 
         logger.info(
-            f"Scoring: {total_fetched} fetched → "
-            f"{total_after_budget} after budget filter → "
-            f"{total_after_score} after score filter"
+            "Scoring: %s fetched → %s after budget filter → %s after score filter",
+            total_fetched,
+            total_after_budget,
+            total_after_score,
         )
 
         return ScoredResults(
             opportunities=opportunities,
             total_fetched=total_fetched,
             total_after_budget_filter=total_after_budget,
-            total_after_score_filter=total_after_score
+            total_after_score_filter=total_after_score,
+            fetched_by_source=fetched_by_source,
+            after_budget_filter_by_source=after_budget_by_source,
+            after_score_filter_by_source=after_score_by_source,
         )

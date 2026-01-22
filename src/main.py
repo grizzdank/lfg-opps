@@ -63,11 +63,20 @@ async def fetch_all_opportunities():
         console.print(f"[cyan]Fetching from {source.name}...[/cyan]")
 
         try:
-            batch = await source.fetch_opportunities(
-                keywords=keywords,
-                min_budget=settings.min_budget,
-                limit=settings.max_results_per_run
-            )
+            # Per-source API-side filtering (best-effort; additional filtering happens after scoring).
+            fetch_kwargs = {"keywords": keywords, "limit": settings.max_results_per_run}
+
+            if source.source_type == Source.FREELANCER:
+                fetch_kwargs["min_budget"] = settings.min_budget
+                fetch_kwargs["max_budget"] = settings.fln_max_budget
+            elif source.source_type == Source.UPWORK:
+                fetch_kwargs["min_budget"] = settings.upwork_min_budget if settings.upwork_min_budget is not None else settings.min_budget
+            elif source.source_type == Source.SAM_GOV:
+                fetch_kwargs["min_budget"] = settings.sam_min_budget
+                fetch_kwargs["naics_codes"] = settings.sam_gov_naics_codes
+                fetch_kwargs["sdvosb_only"] = settings.sam_sdvo_only
+
+            batch = await source.fetch_opportunities(**fetch_kwargs)
 
             if batch.error:
                 console.print(f"[red]✗ {source.name}: {batch.error}[/red]")

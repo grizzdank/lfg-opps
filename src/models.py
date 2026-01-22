@@ -119,7 +119,14 @@ class OpportunityBatch(BaseModel):
 class ScoredResults(BaseModel):
     """Results after scoring and filtering."""
     opportunities: list[Opportunity]
+
     total_fetched: int
     total_after_budget_filter: int
     total_after_score_filter: int
+
+    # Source breakdowns (keys are Source values: freelancer, upwork, samgov)
+    fetched_by_source: dict[str, int] = Field(default_factory=dict)
+    after_budget_filter_by_source: dict[str, int] = Field(default_factory=dict)
+    after_score_filter_by_source: dict[str, int] = Field(default_factory=dict)
+
     generated_at: datetime = Field(default_factory=datetime.now)
