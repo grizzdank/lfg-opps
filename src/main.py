@@ -20,7 +20,6 @@ from .config import settings, KEYWORDS
 from .models import Source
 from .sources import FreelancerSource, SAMGovSource
 from .sources.upwork import UpworkSource
-from .sources.samgov import SAMGovSource
 from .scoring import OpportunityScorer
 from .output import run_dashboard, print_quick_list, console, send_digest
 
