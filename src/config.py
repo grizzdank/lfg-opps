@@ -36,13 +36,16 @@ class Settings(BaseSettings):
             "518210",  # Computing Infrastructure (Cloud/AI)
             "541715",  # R&D in Physical/Engineering/Life Sciences (AI/ML R&D)
             "541614",  # Process/Logistics Consulting
+            "611430",  # Professional Development Training
+            "541612",  # Human Resources Consulting
         ],
         validation_alias=AliasChoices("SAM_NAICS_CODES", "SAM_GOV_NAICS_CODES"),
         description=(
-            "NAICS codes for IT/AI/consulting opportunities. "
+            "NAICS codes for IT/AI/consulting/OCM opportunities. "
             "541511=Programming, 541512=Systems Design, 541519=Other IT, "
             "541611=Admin Mgmt, 541618=Other Mgmt, 541690=Scientific/Tech, "
-            "518210=Cloud/AI Infra, 541715=R&D, 541614=Process Consulting"
+            "518210=Cloud/AI Infra, 541715=R&D, 541614=Process Consulting, "
+            "611430=Prof Dev Training, 541612=HR Consulting"
         ),
     )
     sam_gov_set_asides: List[str] = Field(
@@ -198,6 +201,17 @@ KEYWORDS = {
         "technology adoption",
         "business process reengineering",
         "continuous improvement",
+        "project management",
+        "program management",
+        "pmo",
+        "organizational development",
+        "workforce development",
+        "professional development",
+        "facilitation",
+        "communications strategy",
+        "readiness assessment",
+        "training development",
+        "learning management",
     ],
     "cloud_devops": [
         "cloud",
