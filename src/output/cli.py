@@ -93,7 +93,7 @@ def create_summary_panel(results: ScoredResults) -> Panel:
 
     return Panel(
         text,
-        title=f"[bold]LFG Opportunity Finder[/bold] - {datetime.now().strftime(%b %d, %Y %H:%M)}",
+        title=f"[bold]LFG Opportunity Finder[/bold] - {datetime.now().strftime('%b %d, %Y %H:%M')}",
         border_style="blue",
     )
 
