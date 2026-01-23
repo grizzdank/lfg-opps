@@ -26,11 +26,23 @@ class Settings(BaseSettings):
     sam_gov_api_key: str = Field(default="", description="SAM.gov API key from beta.sam.gov")
     # Back-compat field name (SAM_GOV_NAICS_CODES) + new env var name (SAM_NAICS_CODES)
     sam_gov_naics_codes: List[str] = Field(
-        default=["541611", "541618", "541519", "541512", "541690"],
+        default=[
+            "541511",  # Custom Computer Programming
+            "541512",  # Computer Systems Design
+            "541519",  # Other Computer Related Services
+            "541611",  # Administrative Management Consulting
+            "541618",  # Other Management Consulting
+            "541690",  # Other Scientific/Technical Consulting
+            "518210",  # Computing Infrastructure (Cloud/AI)
+            "541715",  # R&D in Physical/Engineering/Life Sciences (AI/ML R&D)
+            "541614",  # Process/Logistics Consulting
+        ],
         validation_alias=AliasChoices("SAM_NAICS_CODES", "SAM_GOV_NAICS_CODES"),
         description=(
-            "NAICS codes: 541611=Admin Mgmt, 541618=Other Mgmt, 541519=Other IT, "
-            "541512=Computer Systems, 541690=Other Scientific"
+            "NAICS codes for IT/AI/consulting opportunities. "
+            "541511=Programming, 541512=Systems Design, 541519=Other IT, "
+            "541611=Admin Mgmt, 541618=Other Mgmt, 541690=Scientific/Tech, "
+            "518210=Cloud/AI Infra, 541715=R&D, 541614=Process Consulting"
         ),
     )
     sam_gov_set_asides: List[str] = Field(
@@ -143,6 +155,15 @@ KEYWORDS = {
         "intelligent automation",
         "rpa",
         "process automation",
+        "natural language processing",
+        "nlp",
+        "computer vision",
+        "predictive analytics",
+        "data science",
+        "deep learning",
+        "ai/ml",
+        "responsible ai",
+        "decision support",
     ],
     "mvp_development": [
         "mvp",
@@ -172,6 +193,28 @@ KEYWORDS = {
         "implementation",
         "migration",
         "rollout",
+        "stakeholder engagement",
+        "user adoption",
+        "technology adoption",
+        "business process reengineering",
+        "continuous improvement",
+    ],
+    "cloud_devops": [
+        "cloud",
+        "aws",
+        "azure",
+        "gcp",
+        "kubernetes",
+        "docker",
+        "containerization",
+        "infrastructure as code",
+        "terraform",
+        "ci/cd",
+        "platform engineering",
+        "saas",
+        "paas",
+        "serverless",
+        "cloud native",
     ],
     "smb_focus": [
         "small business",
@@ -199,6 +242,20 @@ KEYWORDS = {
         "task order",
         "idiq",
         "bpa",
+        "it modernization",
+        "systems integration",
+        "cloud migration",
+        "devops",
+        "devsecops",
+        "zero trust",
+        "cybersecurity",
+        "data analytics",
+        "knowledge management",
+        "section 508",
+        "agile development",
+        "software development",
+        "web application",
+        "microservices",
     ],
 }
 

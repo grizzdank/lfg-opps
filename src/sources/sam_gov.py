@@ -128,7 +128,7 @@ class SAMGovSource(BaseSource):
         }
 
         if title_query:
-            params["title"] = title_query
+            params["q"] = title_query  # 'q' searches title + description; 'title' is too narrow
 
         if naics_param:
             params["ncode"] = naics_param
