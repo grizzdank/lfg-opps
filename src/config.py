@@ -119,6 +119,7 @@ class Settings(BaseSettings):
     # Runtime
     check_interval: int = Field(default=60, description="Check interval in minutes")
     db_path: str = Field(default="data/opportunities.db", description="SQLite DB path")
+    cache_ttl_hours: float = Field(default=4.0, description="Cache TTL in hours; 0 to disable")
     log_level: str = Field(default="INFO", description="Logging level")
 
     class Config:

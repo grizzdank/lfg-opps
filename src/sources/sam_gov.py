@@ -115,11 +115,11 @@ class SAMGovSource(BaseSource):
             # SAM's `title` param behaves like keyword matching; keep it simple.
             title_query = " ".join([k.strip() for k in keywords if k and k.strip()]) or None
 
-        # NAICS
+        # NAICS - SAM.gov treats multiple codes as AND, so we query each separately
         naics = naics_codes if naics_codes is not None else settings.sam_gov_naics_codes
-        naics_param = ",".join([c.strip() for c in naics if c and c.strip()]) if naics else None
+        naics_list = [c.strip() for c in naics if c and c.strip()] if naics else []
 
-        params: dict[str, Any] = {
+        base_params: dict[str, Any] = {
             "api_key": settings.sam_gov_api_key,
             "postedFrom": posted_from.strftime("%m/%d/%Y"),
             "postedTo": posted_to.strftime("%m/%d/%Y"),
@@ -128,93 +128,81 @@ class SAMGovSource(BaseSource):
         }
 
         if title_query:
-            params["q"] = title_query  # 'q' searches title + description; 'title' is too narrow
-
-        if naics_param:
-            params["ncode"] = naics_param
+            base_params["q"] = title_query
 
         if sdvosb_only:
-            params["typeOfSetAside"] = SET_ASIDE_SDVOSB
+            base_params["typeOfSetAside"] = SET_ASIDE_SDVOSB
 
-        logger.info(
-            "SAM.gov search postedFrom=%s postedTo=%s limit=%s offset=%s sdvosb_only=%s naics=%s title=%s",
-            params["postedFrom"],
-            params["postedTo"],
-            params["limit"],
-            params["offset"],
-            sdvosb_only,
-            naics_param,
-            title_query,
-        )
+        # Query each NAICS code separately and merge (API treats multiple as AND, we want OR)
+        all_raw: list[dict] = []
+        seen_ids: set[str] = set()
+        total_records = 0
 
-        try:
-            resp = await client.get(SAM_API_BASE, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+        codes_to_query = naics_list if naics_list else [None]  # None = no NAICS filter
 
-            raw_list = data.get("opportunitiesData") or []
-            total_records = int(data.get("totalRecords") or 0)
+        for ncode in codes_to_query:
+            params = base_params.copy()
+            if ncode:
+                params["ncode"] = ncode
 
-            opportunities: list[Opportunity] = []
-            for raw in raw_list:
-                try:
-                    opp = self._normalize_opportunity(raw)
-                    if not opp:
-                        continue
-                    if min_budget is not None:
-                        # Prefer budget_max when present; otherwise budget_min.
-                        budget_val = opp.budget_max if opp.budget_max is not None else opp.budget_min
-                        if budget_val is not None and budget_val < min_budget:
-                            continue
-                    opportunities.append(opp)
-                except Exception as e:
-                    logger.warning(
-                        "Failed to normalize SAM.gov opportunity noticeId=%s: %s",
-                        (raw or {}).get("noticeId"),
-                        e,
-                    )
-
-            next_cursor = None
-            # API uses offset/limit; next page exists if offset+limit < total.
-            if (offset + params["limit"]) < total_records and len(raw_list) > 0:
-                next_cursor = str(offset + params["limit"])
-
-            return OpportunityBatch(
-                source=Source.SAM_GOV,
-                opportunities=opportunities,
-                next_cursor=next_cursor,
+            logger.info(
+                "SAM.gov search postedFrom=%s postedTo=%s limit=%s offset=%s sdvosb_only=%s naics=%s title=%s",
+                params["postedFrom"],
+                params["postedTo"],
+                params["limit"],
+                params["offset"],
+                sdvosb_only,
+                ncode,
+                title_query,
             )
 
-        except httpx.HTTPStatusError as e:
-            body = None
             try:
-                body = e.response.text
-            except Exception:
-                body = None
-            logger.error(
-                "SAM.gov HTTP error %s. Response: %s",
-                e.response.status_code,
-                (body[:5000] if body else "<no body>"),
-            )
-            return OpportunityBatch(
-                source=Source.SAM_GOV,
-                opportunities=[],
-                error=f"SAM.gov API error: {e.response.status_code}",
-            )
-        except (httpx.TimeoutException, httpx.NetworkError) as e:
-            logger.error("SAM.gov network error: %s", e)
-            return OpportunityBatch(
-                source=Source.SAM_GOV,
-                opportunities=[],
-                error="SAM.gov network/timeout error",
-            )
-        except Exception as e:
-            logger.exception("SAM.gov fetch failed")
-            return OpportunityBatch(
-                source=Source.SAM_GOV,
-                opportunities=[],
-                error=str(e),
-            )
+                resp = await client.get(SAM_API_BASE, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+
+                for raw in data.get("opportunitiesData") or []:
+                    notice_id = raw.get("noticeId") or raw.get("solicitationNumber")
+                    if notice_id and notice_id not in seen_ids:
+                        seen_ids.add(notice_id)
+                        all_raw.append(raw)
+
+                total_records += int(data.get("totalRecords") or 0)
+
+            except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.NetworkError) as e:
+                logger.warning("SAM.gov query for NAICS %s failed: %s", ncode, e)
+                continue
+
+        raw_list = all_raw
+
+        opportunities: list[Opportunity] = []
+        for raw in raw_list:
+            try:
+                opp = self._normalize_opportunity(raw)
+                if not opp:
+                    continue
+                if min_budget is not None:
+                    budget_val = opp.budget_max if opp.budget_max is not None else opp.budget_min
+                    if budget_val is not None and budget_val < min_budget:
+                        continue
+                opportunities.append(opp)
+            except Exception as e:
+                logger.warning(
+                    "Failed to normalize SAM.gov opportunity noticeId=%s: %s",
+                    (raw or {}).get("noticeId"),
+                    e,
+                )
+
+        # Pagination: next page if we got results and there might be more
+        next_cursor = None
+        if raw_list and total_records > len(raw_list):
+            next_cursor = str(base_params["offset"] + base_params["limit"])
+
+        return OpportunityBatch(
+            source=Source.SAM_GOV,
+            opportunities=opportunities,
+            next_cursor=next_cursor,
+        )
 
     def _normalize_opportunity(self, raw: dict) -> Optional[Opportunity]:
         notice_id = raw.get("noticeId") or raw.get("solicitationNumber")
