@@ -68,84 +68,131 @@ def paginate_control(page: int, cursor: str | None, source_type: Source) -> tupl
     return (True, delay if page > 0 else 0)
 
 
-async def fetch_all_opportunities():
-    """Fetch opportunities from all configured sources."""
+async def fetch_with_cache(store: OpportunityStore, refresh_sources: set[Source]) -> list[Opportunity]:
+    """Fetch opportunities with per-source caching."""
     sources = [
-        FreelancerSource(),
-        UpworkSource(),
-        SAMGovSource()
+        (FreelancerSource(), Source.FREELANCER),
+        (UpworkSource(), Source.UPWORK),
+        (SAMGovSource(), Source.SAM_GOV),
     ]
 
+    all_opportunities: list[Opportunity] = []
+    sources_to_fetch: list[tuple] = []
+
+    # Check each source's cache
+    for source_obj, source_type in sources:
+        if not source_obj.is_configured():
+            console.print(f"[yellow]⚠ {source_obj.name} not configured, skipping[/yellow]")
+            continue
+
+        needs_refresh = source_type in refresh_sources
+        cache_age = store.get_cache_age_hours(source=source_type)
+
+        if not needs_refresh and cache_age is not None and cache_age < settings.cache_ttl_hours:
+            # Load from cache
+            cached = store.load_opportunities(max_age_hours=settings.cache_ttl_hours, source=source_type)
+            console.print(f"[dim]✓ {source_obj.name}: {len(cached)} from cache ({cache_age:.1f}h old)[/dim]")
+            all_opportunities.extend(cached)
+        else:
+            # Queue for fresh fetch
+            reason = "refresh requested" if needs_refresh else "cache stale/empty"
+            sources_to_fetch.append((source_obj, source_type, reason))
+
+    # Fetch fresh data for queued sources
+    if sources_to_fetch:
+        fresh = await fetch_sources([(s, t) for s, t, _ in sources_to_fetch])
+        all_opportunities.extend(fresh)
+
+        # Save fresh data to cache
+        for source_obj, source_type, _ in sources_to_fetch:
+            source_opps = [o for o in fresh if o.source == source_type]
+            if source_opps:
+                store.save_opportunities(source_opps)
+                console.print(f"[dim]Cached {len(source_opps)} {source_obj.name} opportunities[/dim]")
+
+    return all_opportunities
+
+
+async def fetch_sources(sources: list[tuple]) -> list[Opportunity]:
+    """Fetch from specific sources."""
     all_opportunities = []
     keywords = get_search_keywords()
 
-    for source in sources:
-        if not source.is_configured():
-            console.print(f"[yellow]⚠ {source.name} not configured, skipping[/yellow]")
-            continue
-
+    for source, source_type in sources:
         console.print(f"[cyan]Fetching from {source.name}...[/cyan]")
-
-        try:
-            # Per-source API-side filtering (best-effort; additional filtering happens after scoring).
-            fetch_kwargs = {"keywords": keywords, "limit": settings.max_results_per_run}
-
-            if source.source_type == Source.FREELANCER:
-                fetch_kwargs["min_budget"] = settings.min_budget
-                fetch_kwargs["max_budget"] = settings.fln_max_budget
-            elif source.source_type == Source.UPWORK:
-                fetch_kwargs["min_budget"] = settings.upwork_min_budget if settings.upwork_min_budget is not None else settings.min_budget
-            elif source.source_type == Source.SAM_GOV:
-                # SAM.gov: rely on NAICS codes for filtering, skip keyword search
-                # (keyword AND logic is too restrictive for federal listings)
-                fetch_kwargs["keywords"] = None
-                fetch_kwargs["min_budget"] = settings.sam_min_budget
-                fetch_kwargs["naics_codes"] = settings.sam_gov_naics_codes
-                fetch_kwargs["sdvosb_only"] = settings.sam_sdvo_only
-
-            # Paginate through results
-            source_opportunities = []
-            cursor = None
-            page = 0
-
-            while True:
-                # TODO: Implement pagination control logic here (5-10 lines)
-                # Decide: max pages? delay between requests? early exit conditions?
-                # Available: page (current page number), cursor (next page token or None)
-                # Return: should_continue (bool), optional delay
-                should_continue, delay = paginate_control(page, cursor, source.source_type)
-                if not should_continue:
-                    break
-
-                if delay > 0:
-                    await asyncio.sleep(delay)
-
-                fetch_kwargs["cursor"] = cursor
-                batch = await source.fetch_opportunities(**fetch_kwargs)
-
-                if batch.error:
-                    console.print(f"[red]✗ {source.name}: {batch.error}[/red]")
-                    break
-
-                source_opportunities.extend(batch.opportunities)
-                cursor = batch.next_cursor
-                page += 1
-
-                # No more pages available
-                if not cursor:
-                    break
-
-            if source_opportunities:
-                console.print(f"[green]✓ {source.name}: {len(source_opportunities)} opportunities ({page} page(s))[/green]")
-                all_opportunities.extend(source_opportunities)
-            elif not batch.error:
-                console.print(f"[yellow]⚠ {source.name}: no opportunities found[/yellow]")
-
-        except Exception as e:
-            console.print(f"[red]✗ {source.name} error: {e}[/red]")
-            logger.exception(f"Error fetching from {source.name}")
+        opps = await fetch_single_source(source, source_type, keywords)
+        all_opportunities.extend(opps)
 
     return all_opportunities
+
+
+async def fetch_single_source(source, source_type: Source, keywords: list[str]) -> list[Opportunity]:
+    """Fetch opportunities from a single source with pagination."""
+    try:
+        fetch_kwargs = {"keywords": keywords, "limit": settings.max_results_per_run}
+
+        if source_type == Source.FREELANCER:
+            fetch_kwargs["min_budget"] = settings.min_budget
+            fetch_kwargs["max_budget"] = settings.fln_max_budget
+        elif source_type == Source.UPWORK:
+            fetch_kwargs["min_budget"] = settings.upwork_min_budget if settings.upwork_min_budget is not None else settings.min_budget
+        elif source_type == Source.SAM_GOV:
+            fetch_kwargs["keywords"] = None
+            fetch_kwargs["min_budget"] = settings.sam_min_budget
+            fetch_kwargs["naics_codes"] = settings.sam_gov_naics_codes
+            fetch_kwargs["sdvosb_only"] = settings.sam_sdvo_only
+
+        source_opportunities = []
+        cursor = None
+        page = 0
+
+        while True:
+            should_continue, delay = paginate_control(page, cursor, source_type)
+            if not should_continue:
+                break
+
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+            fetch_kwargs["cursor"] = cursor
+            batch = await source.fetch_opportunities(**fetch_kwargs)
+
+            if batch.error:
+                console.print(f"[red]✗ {source.name}: {batch.error}[/red]")
+                break
+
+            source_opportunities.extend(batch.opportunities)
+            cursor = batch.next_cursor
+            page += 1
+
+            if not cursor:
+                break
+
+        if source_opportunities:
+            console.print(f"[green]✓ {source.name}: {len(source_opportunities)} opportunities ({page} page(s))[/green]")
+
+        return source_opportunities
+
+    except Exception as e:
+        console.print(f"[red]✗ {source.name} error: {e}[/red]")
+        logger.exception(f"Error fetching from {source.name}")
+        return []
+
+
+async def fetch_all_opportunities():
+    """Fetch opportunities from all configured sources (no caching)."""
+    sources = [
+        (FreelancerSource(), Source.FREELANCER),
+        (UpworkSource(), Source.UPWORK),
+        (SAMGovSource(), Source.SAM_GOV),
+    ]
+
+    configured = [(s, t) for s, t in sources if s.is_configured()]
+    for s, _ in sources:
+        if not s.is_configured():
+            console.print(f"[yellow]⚠ {s.name} not configured, skipping[/yellow]")
+
+    return await fetch_sources(configured)
 
 
 @click.command()
@@ -154,8 +201,8 @@ async def fetch_all_opportunities():
 @click.option("--limit", "-l", default=10, help="Number of results to show/email")
 @click.option("--schedule", "-s", is_flag=True, help="Run on schedule (every CHECK_INTERVAL minutes)")
 @click.option("--dry-run", is_flag=True, help="Fetch and score but don't output")
-@click.option("--refresh", "-r", is_flag=True, help="Force refresh, ignore cache")
-def main(quick: bool, email: bool, limit: int, schedule: bool, dry_run: bool, refresh: bool):
+@click.option("--refresh", "-r", default="", help="Force refresh: 'all', or sources like 'sam,freelancer'")
+def main(quick: bool, email: bool, limit: int, schedule: bool, dry_run: bool, refresh: str):
     """LFG Opportunity Finder - Discover consulting opportunities.
 
     Searches Freelancer.com and Upwork for projects matching
@@ -173,26 +220,38 @@ def main(quick: bool, email: bool, limit: int, schedule: bool, dry_run: bool, re
         run_once(quick, email, limit, dry_run, refresh)
 
 
-def run_once(quick: bool, email: bool, limit: int, dry_run: bool, refresh: bool = False):
+def parse_refresh_sources(refresh: str) -> set[Source]:
+    """Parse refresh argument into set of sources to refresh."""
+    if not refresh:
+        return set()
+    if refresh.lower() == "all":
+        return {Source.FREELANCER, Source.UPWORK, Source.SAM_GOV}
+
+    source_map = {
+        "sam": Source.SAM_GOV, "sam_gov": Source.SAM_GOV, "samgov": Source.SAM_GOV,
+        "freelancer": Source.FREELANCER, "fl": Source.FREELANCER,
+        "upwork": Source.UPWORK, "uw": Source.UPWORK,
+    }
+    sources = set()
+    for name in refresh.lower().split(","):
+        name = name.strip()
+        if name in source_map:
+            sources.add(source_map[name])
+    return sources
+
+
+def run_once(quick: bool, email: bool, limit: int, dry_run: bool, refresh: str = ""):
     """Run a single fetch and display cycle."""
     store = OpportunityStore(settings.get_db_path())
+    refresh_sources = parse_refresh_sources(refresh)
+
     opportunities: list[Opportunity] = []
 
-    # Check cache first (unless refresh forced or cache disabled)
-    use_cache = settings.cache_ttl_hours > 0 and not refresh
-    if use_cache:
-        cache_age = store.get_cache_age_hours()
-        if cache_age is not None and cache_age < settings.cache_ttl_hours:
-            console.print(f"[cyan]Loading from cache ({cache_age:.1f}h old)...[/cyan]")
-            opportunities = store.load_opportunities(max_age_hours=settings.cache_ttl_hours)
-            console.print(f"[green]✓ Loaded {len(opportunities)} cached opportunities[/green]")
-
-    # Fetch fresh if no cache or stale
-    if not opportunities:
+    # Per-source cache check (fetch_with_cache handles saving)
+    if settings.cache_ttl_hours > 0:
+        opportunities = asyncio.run(fetch_with_cache(store, refresh_sources))
+    else:
         opportunities = asyncio.run(fetch_all_opportunities())
-        if opportunities and settings.cache_ttl_hours > 0:
-            saved = store.save_opportunities(opportunities)
-            console.print(f"[dim]Cached {saved} opportunities[/dim]")
 
     if not opportunities:
         console.print("\n[yellow]No opportunities found. Check your API credentials.[/yellow]")
@@ -238,7 +297,7 @@ def run_scheduled(quick: bool, email: bool, limit: int):
 
     def job():
         console.print(f"\n[dim]--- {datetime.now().strftime('%Y-%m-%d %H:%M')} ---[/dim]")
-        run_once(quick=True, email=email, limit=limit, dry_run=False, refresh=True)
+        run_once(quick=True, email=email, limit=limit, dry_run=False, refresh="all")
 
     # Run immediately
     job()

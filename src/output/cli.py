@@ -98,8 +98,8 @@ def create_summary_panel(results: ScoredResults) -> Panel:
     )
 
 
-def create_opportunity_table(opportunities: list[Opportunity], offset: int = 0) -> Table:
-    """Create table of opportunities."""
+def create_opportunity_table(opportunities: list[Opportunity]) -> Table:
+    """Create table of opportunities. Numbers are always 1-N for easy selection."""
     table = Table(
         box=box.ROUNDED,
         show_header=True,
@@ -115,7 +115,7 @@ def create_opportunity_table(opportunities: list[Opportunity], offset: int = 0) 
     table.add_column("Age", justify="right", width=5)
     table.add_column("Src", justify="center", width=3)
 
-    for i, opp in enumerate(opportunities, start=offset + 1):
+    for i, opp in enumerate(opportunities, start=1):  # Always 1-N on each page
         score_text = Text()
         score_text.append(f"{opp.score_emoji} {opp.total_score:.0f}")
 
@@ -233,7 +233,7 @@ def run_dashboard(results: ScoredResults, page_size: int = 10) -> None:
         if not page_opps:
             console.print("[yellow]No opportunities found matching your criteria.[/yellow]")
         else:
-            console.print(create_opportunity_table(page_opps, start))
+            console.print(create_opportunity_table(page_opps))
 
         # Navigation
         console.print()
@@ -244,7 +244,7 @@ def run_dashboard(results: ScoredResults, page_size: int = 10) -> None:
         nav_text.append("ext ", style="dim")
         nav_text.append("[p]", style="cyan")
         nav_text.append("rev ", style="dim")
-        nav_text.append("[1-9]", style="cyan")
+        nav_text.append(f"[1-{len(page_opps)}]", style="cyan")
         nav_text.append(" details ", style="dim")
         nav_text.append("[o]", style="cyan")
         nav_text.append("pen ", style="dim")

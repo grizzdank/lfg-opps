@@ -11,6 +11,7 @@ This source normalizes SAM.gov opportunities into the project's Opportunity mode
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -27,6 +28,11 @@ SAM_API_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 # Common set-aside codes (SAM.gov values can vary by notice)
 SET_ASIDE_SDVOSB = "SDVOSB"
+
+# Active notice types (exclude awards, justifications, etc.)
+# o=Solicitation, p=Presolicitation, k=Combined Synopsis/Solicitation,
+# r=Sources Sought, s=Special Notice
+ACTIVE_NOTICE_TYPES = {"o", "p", "k", "r", "s"}
 
 
 class SAMGovSource(BaseSource):
@@ -133,14 +139,11 @@ class SAMGovSource(BaseSource):
         if sdvosb_only:
             base_params["typeOfSetAside"] = SET_ASIDE_SDVOSB
 
-        # Query each NAICS code separately and merge (API treats multiple as AND, we want OR)
-        all_raw: list[dict] = []
-        seen_ids: set[str] = set()
-        total_records = 0
-
+        # Query each NAICS code in parallel (API treats multiple codes as AND, we want OR)
         codes_to_query = naics_list if naics_list else [None]  # None = no NAICS filter
 
-        for ncode in codes_to_query:
+        async def fetch_naics(ncode: str | None) -> tuple[list[dict], int]:
+            """Fetch opportunities for a single NAICS code."""
             params = base_params.copy()
             if ncode:
                 params["ncode"] = ncode
@@ -160,18 +163,28 @@ class SAMGovSource(BaseSource):
                 resp = await client.get(SAM_API_BASE, params=params)
                 resp.raise_for_status()
                 data = resp.json()
-
-                for raw in data.get("opportunitiesData") or []:
-                    notice_id = raw.get("noticeId") or raw.get("solicitationNumber")
-                    if notice_id and notice_id not in seen_ids:
-                        seen_ids.add(notice_id)
-                        all_raw.append(raw)
-
-                total_records += int(data.get("totalRecords") or 0)
-
+                raw_opps = data.get("opportunitiesData") or []
+                total = int(data.get("totalRecords") or 0)
+                return (raw_opps, total)
             except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.NetworkError) as e:
                 logger.warning("SAM.gov query for NAICS %s failed: %s", ncode, e)
-                continue
+                return ([], 0)
+
+        # Fire all NAICS queries in parallel
+        results = await asyncio.gather(*[fetch_naics(ncode) for ncode in codes_to_query])
+
+        # Merge and dedupe results
+        all_raw: list[dict] = []
+        seen_ids: set[str] = set()
+        total_records = 0
+
+        for raw_opps, total in results:
+            total_records += total
+            for raw in raw_opps:
+                notice_id = raw.get("noticeId") or raw.get("solicitationNumber")
+                if notice_id and notice_id not in seen_ids:
+                    seen_ids.add(notice_id)
+                    all_raw.append(raw)
 
         raw_list = all_raw
 
@@ -207,6 +220,12 @@ class SAMGovSource(BaseSource):
     def _normalize_opportunity(self, raw: dict) -> Optional[Opportunity]:
         notice_id = raw.get("noticeId") or raw.get("solicitationNumber")
         if not notice_id:
+            return None
+
+        # Skip non-active notice types (awards, justifications, etc.)
+        notice_type = raw.get("type", "").lower()
+        if notice_type and notice_type not in ACTIVE_NOTICE_TYPES:
+            logger.debug("Skipping %s notice type: %s", notice_type, notice_id)
             return None
 
         posted_at = self._parse_date(raw.get("postedDate")) or datetime.now()
