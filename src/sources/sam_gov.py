@@ -223,8 +223,9 @@ class SAMGovSource(BaseSource):
             return None
 
         # Skip non-active notice types (awards, justifications, etc.)
+        # Whitelist approach: only accept known active types, reject everything else
         notice_type = raw.get("type", "").lower()
-        if notice_type and notice_type not in ACTIVE_NOTICE_TYPES:
+        if notice_type not in ACTIVE_NOTICE_TYPES:
             logger.debug("Skipping %s notice type: %s", notice_type, notice_id)
             return None
 
@@ -298,6 +299,7 @@ class SAMGovSource(BaseSource):
             posted_at=posted_at,
             notice_type=notice_type or "",
             set_aside=str(raw.get("typeOfSetAside", "")),
+            response_deadline=self._parse_date(response_deadline),
         )
 
     def _extract_tags(self, raw: dict) -> list[str]:

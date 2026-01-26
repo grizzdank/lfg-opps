@@ -2,12 +2,12 @@
 
 ## Phase 1: Critical Fixes (This Week)
 
-- [ ] **1.1** Fix scoring weights: Keywords 50%, Phase 25%, Set-Aside 25%, Budget 0%
-- [ ] **1.2** Add `score_phase()` - prioritize Sources Sought (r) over Solicitations (o)
-- [ ] **1.3** Add `score_setaside()` - SDVOSB > VOSB > SBA > Small Business > Full & Open
-- [ ] **1.4** Add negative keywords filter (construction, janitorial, etc.)
-- [ ] **1.5** Extend lookback to 90 days
-- [ ] **1.6** Add NAICS codes: 541513, 541990, 541330, 541613
+- [x] **1.1** Fix scoring weights: Keywords 50%, Phase 25%, Set-Aside 25%, Budget 0%
+- [x] **1.2** Add `score_phase()` - prioritize Sources Sought (r) over Solicitations (o)
+- [x] **1.3** Add `score_setaside()` - SDVOSB > VOSB > SBA > Small Business > Full & Open
+- [x] **1.4** Add negative keywords filter (construction, janitorial, etc.)
+- [x] **1.5** Extend lookback to 90 days
+- [x] **1.6** Add NAICS codes: 541513, 541990, 541330, 541613
 
 ## Phase 2: Enhanced Intelligence (This Month)
 

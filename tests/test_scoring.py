@@ -152,3 +152,129 @@ class TestCompositeScoring:
         ]
         results = scorer.score_and_filter(opportunities)
         assert len(results.opportunities) == 1
+
+
+class TestPhase1Scoring:
+    """Test Phase 1 scoring methods: phase (notice type), set-aside, and negative keywords."""
+
+    def test_score_phase_sources_sought(self):
+        """Sources Sought (notice_type 'r') should score 100."""
+        scorer = OpportunityScorer()
+        opp = make_opportunity(source=Source.SAM_GOV, title="Sources Sought for AI Services")
+        opp.notice_type = "r"
+
+        score = scorer.score_phase(opp)
+        assert score == 100
+
+    def test_score_phase_solicitation(self):
+        """Solicitation (notice_type 'o') should score 50."""
+        scorer = OpportunityScorer()
+        opp = make_opportunity(source=Source.SAM_GOV, title="Solicitation for IT Services")
+        opp.notice_type = "o"
+
+        score = scorer.score_phase(opp)
+        assert score == 50
+
+    def test_score_phase_non_samgov(self):
+        """Non-SAM.gov sources should return default phase score of 50."""
+        scorer = OpportunityScorer()
+
+        # Test Freelancer source
+        opp_fln = make_opportunity(source=Source.FREELANCER, title="Some project")
+        score_fln = scorer.score_phase(opp_fln)
+        assert score_fln == 50
+
+        # Test Upwork source
+        opp_upwork = make_opportunity(source=Source.UPWORK, title="Another project")
+        score_upwork = scorer.score_phase(opp_upwork)
+        assert score_upwork == 50
+
+    def test_score_setaside_sdvosb(self):
+        """SDVOSB in description/tags should score 100."""
+        scorer = OpportunityScorer()
+
+        # Test SDVOSB in description
+        opp_desc = make_opportunity(
+            source=Source.SAM_GOV,
+            title="Federal Contract",
+            description="This is an SDVOSB set-aside opportunity",
+        )
+        score_desc = scorer.score_setaside(opp_desc)
+        assert score_desc == 100
+
+        # Test SDVOSB in skills/tags
+        opp_tags = make_opportunity(
+            source=Source.SAM_GOV,
+            title="Federal Contract",
+            description="Some federal opportunity",
+        )
+        opp_tags.skills = ["IT Services", "SDVOSB"]
+        score_tags = scorer.score_setaside(opp_tags)
+        assert score_tags == 100
+
+        # Test SDVOSB in set_aside field
+        opp_setaside = make_opportunity(
+            source=Source.SAM_GOV,
+            title="Federal Contract",
+            description="Some federal opportunity",
+        )
+        opp_setaside.set_aside = "SDVOSB"
+        score_setaside = scorer.score_setaside(opp_setaside)
+        assert score_setaside == 100
+
+    def test_score_setaside_full_open(self):
+        """Full & Open (no set-aside, not Sources Sought) should score 30."""
+        scorer = OpportunityScorer()
+        opp = make_opportunity(
+            source=Source.SAM_GOV,
+            title="Federal Contract",
+            description="Full and open competition for IT services",
+        )
+        opp.notice_type = "o"  # Solicitation, not Sources Sought
+        opp.set_aside = ""
+
+        score = scorer.score_setaside(opp)
+        assert score == 30
+
+    def test_score_setaside_sources_sought_creates_opportunity(self):
+        """Sources Sought without set-aside should score 60 (opportunity to create set-aside)."""
+        scorer = OpportunityScorer()
+        opp = make_opportunity(
+            source=Source.SAM_GOV,
+            title="Sources Sought for Cloud Services",
+            description="Seeking information from qualified vendors",
+        )
+        opp.notice_type = "r"  # Sources Sought
+        opp.set_aside = ""  # No set-aside yet
+
+        score = scorer.score_setaside(opp)
+        assert score == 60
+
+    def test_negative_keywords_zero_score(self):
+        """Negative keywords should result in a keyword score of 0."""
+        scorer = OpportunityScorer()
+
+        # Test with a negative keyword in description
+        opp = make_opportunity(
+            source=Source.SAM_GOV,
+            title="Construction Project",
+            description="Need construction services for building maintenance",
+        )
+        score, matched = scorer.score_keywords(opp)
+        assert score == 0
+
+    def test_negative_keywords_matched_list(self):
+        """Matched list should contain NEGATIVE: prefix for negative keywords."""
+        scorer = OpportunityScorer()
+
+        # Test with "janitorial" negative keyword
+        opp = make_opportunity(
+            source=Source.SAM_GOV,
+            title="Janitorial Services",
+            description="Janitorial and custodial support services",
+        )
+        score, matched = scorer.score_keywords(opp)
+        assert score == 0
+        assert len(matched) == 1
+        assert matched[0].startswith("NEGATIVE:")
+        assert "janitorial" in matched[0].lower()

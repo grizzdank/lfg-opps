@@ -63,6 +63,7 @@ class Opportunity(BaseModel):
     # Federal specific
     notice_type: str = Field(default="", description="SAM.gov notice type code (o, p, k, r, s)")
     set_aside: str = Field(default="", description="SAM.gov set-aside type")
+    response_deadline: Optional[datetime] = Field(default=None, description="SAM.gov response deadline")
 
     # Scoring (populated by scorer)
     budget_score: float = 0
