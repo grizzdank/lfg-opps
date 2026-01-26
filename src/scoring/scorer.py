@@ -261,21 +261,22 @@ class OpportunityScorer:
     def score_phase(self, opp: Opportunity) -> float:
         """Score based on procurement phase. Earlier = better.
 
-        Sources Sought (r): 100 pts - can shape SOW, trigger set-aside
-        Special Notice (s): 90 pts - Industry Days, RFIs
-        Presolicitation (p): 80 pts - early warning
-        Combined Synopsis (k): 60 pts - standard solicitation
-        Solicitation (o): 50 pts - often too late
+        Sources Sought: 100 pts - can shape SOW, trigger set-aside
+        Special Notice: 90 pts - Industry Days, RFIs
+        Presolicitation: 80 pts - early warning
+        Combined Synopsis/Solicitation: 60 pts - standard solicitation
+        Solicitation: 50 pts - often too late
         """
         if opp.source != Source.SAM_GOV:
             return 50.0
 
+        # SAM.gov API returns full strings like "Sources Sought", "Solicitation"
         phase_scores = {
-            "r": 100,  # Sources Sought - HIGHEST VALUE
-            "s": 90,   # Special Notice (Industry Days)
-            "p": 80,   # Presolicitation
-            "k": 60,   # Combined Synopsis/Solicitation
-            "o": 50,   # Solicitation
+            "sources sought": 100,  # HIGHEST VALUE - shape requirements
+            "special notice": 90,   # Industry Days, RFIs
+            "presolicitation": 80,  # Early warning
+            "combined synopsis/solicitation": 60,  # Standard
+            "solicitation": 50,     # Often too late
         }
         notice_type = getattr(opp, "notice_type", "").lower()
         return float(phase_scores.get(notice_type, 50))
@@ -308,7 +309,7 @@ class OpportunityScorer:
             return 70.0
 
         # Full & Open but Sources Sought = opportunity to CREATE set-aside
-        if getattr(opp, "notice_type", "") == "r":
+        if getattr(opp, "notice_type", "").lower() == "sources sought":
             return 60.0
 
         return 30.0

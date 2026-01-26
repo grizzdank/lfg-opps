@@ -158,19 +158,19 @@ class TestPhase1Scoring:
     """Test Phase 1 scoring methods: phase (notice type), set-aside, and negative keywords."""
 
     def test_score_phase_sources_sought(self):
-        """Sources Sought (notice_type 'r') should score 100."""
+        """Sources Sought should score 100."""
         scorer = OpportunityScorer()
         opp = make_opportunity(source=Source.SAM_GOV, title="Sources Sought for AI Services")
-        opp.notice_type = "r"
+        opp.notice_type = "Sources Sought"
 
         score = scorer.score_phase(opp)
         assert score == 100
 
     def test_score_phase_solicitation(self):
-        """Solicitation (notice_type 'o') should score 50."""
+        """Solicitation should score 50."""
         scorer = OpportunityScorer()
         opp = make_opportunity(source=Source.SAM_GOV, title="Solicitation for IT Services")
-        opp.notice_type = "o"
+        opp.notice_type = "Solicitation"
 
         score = scorer.score_phase(opp)
         assert score == 50
@@ -230,7 +230,7 @@ class TestPhase1Scoring:
             title="Federal Contract",
             description="Full and open competition for IT services",
         )
-        opp.notice_type = "o"  # Solicitation, not Sources Sought
+        opp.notice_type = "Solicitation"  # Not Sources Sought
         opp.set_aside = ""
 
         score = scorer.score_setaside(opp)
@@ -244,7 +244,7 @@ class TestPhase1Scoring:
             title="Sources Sought for Cloud Services",
             description="Seeking information from qualified vendors",
         )
-        opp.notice_type = "r"  # Sources Sought
+        opp.notice_type = "Sources Sought"
         opp.set_aside = ""  # No set-aside yet
 
         score = scorer.score_setaside(opp)

@@ -30,9 +30,14 @@ SAM_API_BASE = "https://api.sam.gov/opportunities/v2/search"
 SET_ASIDE_SDVOSB = "SDVOSB"
 
 # Active notice types (exclude awards, justifications, etc.)
-# o=Solicitation, p=Presolicitation, k=Combined Synopsis/Solicitation,
-# r=Sources Sought, s=Special Notice
-ACTIVE_NOTICE_TYPES = {"o", "p", "k", "r", "s"}
+# API returns full strings like "Sources Sought", "Award Notice"
+ACTIVE_NOTICE_TYPES = {
+    "solicitation",
+    "presolicitation",
+    "combined synopsis/solicitation",
+    "sources sought",
+    "special notice",
+}
 
 
 class SAMGovSource(BaseSource):

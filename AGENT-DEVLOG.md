@@ -57,3 +57,22 @@
 - Upwork integration still pending API approval
 - Consider adding response deadline filtering for SAM.gov (hide expired)
 - May want to add sorting options in TUI (by score, date, budget)
+
+## 2026-01-26 09:15 - Phase 1 Code Review & Bug Fixes
+
+### Changes Made
+- `src/sources/sam_gov.py`: Fixed critical bug — award notices slipping through filter (changed blacklist to whitelist approach)
+- `src/sources/sam_gov.py`: Added `response_deadline` to Opportunity constructor
+- `src/models.py`: Added `response_deadline: Optional[datetime]` field
+- `tests/test_scoring.py`: Added 8 new tests for Phase 1 scoring (phase, set-aside, negative keywords)
+- `TODO.md`: Marked all Phase 1 items complete
+
+### Current Status
+- **Fixed**: Award notices (like sam.gov/opp/9593a6713b8d452c8f4b7c4b91317727) no longer score — whitelist filter rejects unknown notice types
+- **Working**: Phase 1 complete — scoring weights (50% keyword, 25% phase, 25% set-aside), NAICS expansion, negative keywords, 90-day lookback
+- **Tests**: 19 passing (11 original + 8 new Phase 1 tests)
+
+### Next Steps
+- Phase 2: LLM scoring (optional enhancement), SBIR.gov source, Phase Zero alerts
+- Phase 3: Tradewinds integration, teaming intelligence, agency forecasts
+- Consider adding `response_deadline` filtering to hide expired opportunities
