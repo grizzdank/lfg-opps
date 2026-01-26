@@ -106,7 +106,7 @@ class SAMGovSource(BaseSource):
         client = self._get_client()
 
         # Defaults for required date range.
-        posted_from = posted_from or (datetime.now() - timedelta(days=30))
+        posted_from = posted_from or (datetime.now() - timedelta(days=settings.sam_lookback_days))
         posted_to = posted_to or datetime.now()
 
         # Pagination: cursor is offset
@@ -296,6 +296,8 @@ class SAMGovSource(BaseSource):
             budget_max=budget_max,
             client=client,
             posted_at=posted_at,
+            notice_type=notice_type or "",
+            set_aside=str(raw.get("typeOfSetAside", "")),
         )
 
     def _extract_tags(self, raw: dict) -> list[str]:

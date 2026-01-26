@@ -38,6 +38,10 @@ class Settings(BaseSettings):
             "541614",  # Process/Logistics Consulting
             "611430",  # Professional Development Training
             "541612",  # Human Resources Consulting
+            "541513",  # Computer Facilities Management (AI infra)
+            "541990",  # All Other Professional Services (catch-all)
+            "541330",  # Engineering Services (MVP/R&D)
+            "541613",  # Marketing Consulting (CX, AI adoption)
         ],
         validation_alias=AliasChoices("SAM_NAICS_CODES", "SAM_GOV_NAICS_CODES"),
         description=(
@@ -112,9 +116,14 @@ class Settings(BaseSettings):
     )
 
     # Weights (must sum to 1.0)
-    budget_weight: float = Field(default=0.4, description="Budget score weight")
-    client_weight: float = Field(default=0.4, description="Client quality weight")
-    keyword_weight: float = Field(default=0.2, description="Keyword match weight")
+    budget_weight: float = Field(default=0.0, description="Budget score weight")
+    client_weight: float = Field(default=0.0, description="Client quality weight")
+    keyword_weight: float = Field(default=0.5, description="Keyword match weight")
+    phase_weight: float = Field(default=0.25, description="Notice type scoring weight")
+    setaside_weight: float = Field(default=0.25, description="SDVOSB prioritization weight")
+
+    # SAM.gov specifics
+    sam_lookback_days: int = Field(default=90, description="Days of history to fetch from SAM.gov")
 
     # Runtime
     check_interval: int = Field(default=60, description="Check interval in minutes")
@@ -273,6 +282,23 @@ KEYWORDS = {
         "microservices",
     ],
 }
+
+NEGATIVE_KEYWORDS = [
+    "construction",
+    "janitorial",
+    "custodial",
+    "paving",
+    "roofing",
+    "plumbing",
+    "hvac",
+    "landscaping",
+    "food service",
+    "laundry",
+    "guard services",
+    "hardware maintenance",
+    "forklift",
+    "truck driver",
+]
 
 # Flatten for quick lookup
 ALL_KEYWORDS = set()

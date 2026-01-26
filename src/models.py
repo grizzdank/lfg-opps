@@ -60,10 +60,16 @@ class Opportunity(BaseModel):
     posted_at: datetime
     fetched_at: datetime = Field(default_factory=datetime.now)
 
+    # Federal specific
+    notice_type: str = Field(default="", description="SAM.gov notice type code (o, p, k, r, s)")
+    set_aside: str = Field(default="", description="SAM.gov set-aside type")
+
     # Scoring (populated by scorer)
     budget_score: float = 0
     client_score: float = 0
     keyword_score: float = 0
+    phase_score: float = 0
+    setaside_score: float = 0
     total_score: float = 0
     matched_keywords: list[str] = Field(default_factory=list)
 

@@ -5,7 +5,7 @@ Combines budget, client quality, and keyword scores into a composite score.
 
 import logging
 
-from ..config import KEYWORDS, settings
+from ..config import KEYWORDS, NEGATIVE_KEYWORDS, settings
 from ..models import BudgetType, Opportunity, ScoredResults, Source
 
 logger = logging.getLogger(__name__)
@@ -15,9 +15,9 @@ class OpportunityScorer:
     """Scores opportunities based on budget, client quality, and keyword match.
 
     Scoring Philosophy:
-    - Budget (40%): Higher budgets = more revenue potential
-    - Client Quality (40%): Good clients = smoother projects, repeat business
-    - Keywords (20%): Better match = higher conversion, less time wasted
+    - Keywords (50%): Match with LFG service areas
+    - Phase (25%): Federal procurement phase (earlier = better)
+    - Set-Aside (25%): SDVOSB prioritization
 
     All scores are normalized to 0-100 scale before weighting.
     """
@@ -27,25 +27,37 @@ class OpportunityScorer:
         budget_weight: float | None = None,
         client_weight: float | None = None,
         keyword_weight: float | None = None,
+        phase_weight: float | None = None,
+        setaside_weight: float | None = None,
         min_budget: float | None = None,
         min_score: float | None = None,
     ):
         # Global weights
-        self.budget_weight = budget_weight or settings.budget_weight
-        self.client_weight = client_weight or settings.client_weight
-        self.keyword_weight = keyword_weight or settings.keyword_weight
+        self.budget_weight = budget_weight if budget_weight is not None else settings.budget_weight
+        self.client_weight = client_weight if client_weight is not None else settings.client_weight
+        self.keyword_weight = keyword_weight if keyword_weight is not None else settings.keyword_weight
+        self.phase_weight = phase_weight if phase_weight is not None else settings.phase_weight
+        self.setaside_weight = setaside_weight if setaside_weight is not None else settings.setaside_weight
 
         # Global defaults (used as fallbacks when per-source thresholds are unset)
         self.min_budget = min_budget if min_budget is not None else settings.min_budget
         self.min_score = min_score if min_score is not None else settings.min_score
 
         # Validate weights sum to 1.0
-        total = self.budget_weight + self.client_weight + self.keyword_weight
+        total = (
+            self.budget_weight
+            + self.client_weight
+            + self.keyword_weight
+            + self.phase_weight
+            + self.setaside_weight
+        )
         if abs(total - 1.0) > 0.01:
             logger.warning("Weights sum to %s, not 1.0. Normalizing...", total)
             self.budget_weight /= total
             self.client_weight /= total
             self.keyword_weight /= total
+            self.phase_weight /= total
+            self.setaside_weight /= total
 
     def _estimated_budget(self, opp: Opportunity) -> float:
         """Best-effort comparable budget number for filtering.
@@ -224,6 +236,11 @@ class OpportunityScorer:
         skills_text = " ".join(opp.skills).lower()
         combined = f"{text} {skills_text}"
 
+        # Negative keyword filter: If any negative keyword found, score is 0
+        for nkw in NEGATIVE_KEYWORDS:
+            if nkw.lower() in combined:
+                return 0.0, [f"NEGATIVE: {nkw}"]
+
         matched: list[str] = []
         category_matches = {cat: False for cat in KEYWORDS}
 
@@ -239,7 +256,62 @@ class OpportunityScorer:
         categories_matched = sum(1 for m in category_matches.values() if m)
         score = min(categories_matched * 25, 100)
 
-        return score, matched
+        return float(score), matched
+
+    def score_phase(self, opp: Opportunity) -> float:
+        """Score based on procurement phase. Earlier = better.
+
+        Sources Sought (r): 100 pts - can shape SOW, trigger set-aside
+        Special Notice (s): 90 pts - Industry Days, RFIs
+        Presolicitation (p): 80 pts - early warning
+        Combined Synopsis (k): 60 pts - standard solicitation
+        Solicitation (o): 50 pts - often too late
+        """
+        if opp.source != Source.SAM_GOV:
+            return 50.0
+
+        phase_scores = {
+            "r": 100,  # Sources Sought - HIGHEST VALUE
+            "s": 90,   # Special Notice (Industry Days)
+            "p": 80,   # Presolicitation
+            "k": 60,   # Combined Synopsis/Solicitation
+            "o": 50,   # Solicitation
+        }
+        notice_type = getattr(opp, "notice_type", "").lower()
+        return float(phase_scores.get(notice_type, 50))
+
+    def score_setaside(self, opp: Opportunity) -> float:
+        """Score based on set-aside type. SDVOSB preference.
+
+        SDVOSB: 100 pts
+        VOSB: 85 pts
+        SBA (8a): 75 pts
+        Small Business: 70 pts
+        Full & Open (Sources Sought): 60 pts - can CREATE set-aside
+        Full & Open: 30 pts - low win probability
+        """
+        if opp.source != Source.SAM_GOV:
+            return 50.0
+
+        tags = " ".join(opp.skills).upper()
+        desc = (opp.description or "").upper()
+        set_aside = getattr(opp, "set_aside", "").upper()
+        combined_text = f"{tags} {desc} {set_aside}"
+
+        if "SDVOSB" in combined_text:
+            return 100.0
+        if "VOSB" in combined_text:
+            return 85.0
+        if "SBA" in combined_text or "8(A)" in combined_text:
+            return 75.0
+        if "SMALL BUSINESS" in combined_text:
+            return 70.0
+
+        # Full & Open but Sources Sought = opportunity to CREATE set-aside
+        if getattr(opp, "notice_type", "") == "r":
+            return 60.0
+
+        return 30.0
 
     def score(self, opp: Opportunity) -> Opportunity:
         """Calculate all scores for an opportunity.
@@ -252,11 +324,17 @@ class OpportunityScorer:
         opp.keyword_score = keyword_score
         opp.matched_keywords = matched
 
+        # New Phase and Set-Aside scoring
+        opp.phase_score = self.score_phase(opp)
+        opp.setaside_score = self.score_setaside(opp)
+
         # Composite score
         opp.total_score = (
             opp.budget_score * self.budget_weight
             + opp.client_score * self.client_weight
             + opp.keyword_score * self.keyword_weight
+            + opp.phase_score * self.phase_weight
+            + opp.setaside_score * self.setaside_weight
         )
 
         return opp
