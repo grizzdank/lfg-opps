@@ -37,3 +37,23 @@
 - Consider parallelizing SAM.gov NAICS queries to reduce fetch time
 - Upwork integration still pending API approval
 - May want to add cache invalidation by source (currently all-or-nothing)
+
+## 2026-01-26 06:50 - Parallel Queries, Per-Source Cache, Award Filtering
+
+### Changes Made
+- `src/sources/sam_gov.py`: Parallelized NAICS queries with `asyncio.gather` (~10s vs ~45s sequential)
+- `src/sources/sam_gov.py`: Added `ACTIVE_NOTICE_TYPES` filter to exclude awards/justifications
+- `src/main.py`: Refactored to support per-source cache invalidation (`--refresh sam`, `--refresh fl,uw`, `--refresh all`)
+- `src/main.py`: New functions `fetch_with_cache()`, `fetch_sources()`, `fetch_single_source()` for cleaner separation
+- `src/output/cli.py`: Fixed page 2+ selector bug (numbers now 1-N per page, matching input expectations)
+
+### Current Status
+- **Working**: All 11 NAICS queries fire in parallel, dramatically faster SAM.gov fetches
+- **Working**: Per-source cache — can refresh just SAM while keeping Freelancer cached
+- **Working**: Award notices filtered out, only active solicitations shown
+- **Fixed**: TUI item selector now works correctly on all pages
+
+### Next Steps
+- Upwork integration still pending API approval
+- Consider adding response deadline filtering for SAM.gov (hide expired)
+- May want to add sorting options in TUI (by score, date, budget)
