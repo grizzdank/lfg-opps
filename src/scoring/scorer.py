@@ -4,6 +4,7 @@ Combines budget, client quality, and keyword scores into a composite score.
 """
 
 import logging
+import re
 
 from ..config import KEYWORDS, NEGATIVE_KEYWORDS, settings
 from ..models import BudgetType, Opportunity, ScoredResults, Source
@@ -226,6 +227,15 @@ class OpportunityScorer:
 
         return min(score, 100)
 
+    def _word_match(self, keyword: str, text: str) -> bool:
+        """Check if keyword exists as a whole word/phrase in text.
+
+        Uses word boundaries to avoid false positives like 'ai' matching 'naics'.
+        """
+        # Escape special regex chars, then wrap with word boundaries
+        pattern = rf"\b{re.escape(keyword)}\b"
+        return bool(re.search(pattern, text, re.IGNORECASE))
+
     def score_keywords(self, opp: Opportunity) -> tuple[float, list[str]]:
         """Score based on keyword match. Returns (0-100 score, matched keywords).
 
@@ -238,7 +248,7 @@ class OpportunityScorer:
 
         # Negative keyword filter: If any negative keyword found, score is 0
         for nkw in NEGATIVE_KEYWORDS:
-            if nkw.lower() in combined:
+            if self._word_match(nkw, combined):
                 return 0.0, [f"NEGATIVE: {nkw}"]
 
         matched: list[str] = []
@@ -246,7 +256,7 @@ class OpportunityScorer:
 
         for category, keywords in KEYWORDS.items():
             for kw in keywords:
-                if kw.lower() in combined:
+                if self._word_match(kw, combined):
                     if not category_matches[category]:
                         category_matches[category] = True
                     if kw not in matched:

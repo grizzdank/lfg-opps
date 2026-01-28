@@ -76,3 +76,55 @@
 - Phase 2: LLM scoring (optional enhancement), SBIR.gov source, Phase Zero alerts
 - Phase 3: Tradewinds integration, teaming intelligence, agency forecasts
 - Consider adding `response_deadline` filtering to hide expired opportunities
+
+## 2026-01-26 09:45 - SAM.gov Notice Type Format Fix
+
+### Changes Made
+- `src/sources/sam_gov.py`: Fixed `ACTIVE_NOTICE_TYPES` to use full strings (`"sources sought"`) instead of letter codes (`"r"`)
+- `src/scoring/scorer.py`: Updated `score_phase()` and `score_setaside()` to match API's actual format
+- `tests/test_scoring.py`: Updated tests to use full notice type strings
+
+### Current Status
+- **Fixed**: SAM.gov API returns full strings like `"Sources Sought"`, `"Award Notice"` — not single-letter codes
+- **Working**: 386 opportunities now fetched (was 0 after previous commit's whitelist change)
+- **Filtering**: Award Notice, Justification correctly excluded; only active types pass through
+
+### Root Cause
+The original letter codes (`o`, `p`, `k`, `r`, `s`) appear to be SAM.gov's internal classification. The public API returns full strings — classic documentation vs reality mismatch.
+
+### Next Steps
+- Phase 2: LLM scoring, SBIR.gov source, Phase Zero alerts
+- Consider expired deadline filtering using `response_deadline` field
+
+## 2026-01-28 - Keyword Matching Fix & Scoring Weight Correction
+
+### Problem
+Physical infrastructure opportunities (fire extinguishers, chilled water valves, boiler repairs) were scoring 50-67 points — nearly as high as legitimate IT opportunities — and appearing in top results.
+
+### Root Causes Identified
+1. **Substring keyword matching**: `score_keywords()` used `if kw in text` which caused false positives:
+   - `"ai"` matched `"NAICS"` (every SAM.gov opportunity)
+   - `"lean"` matched `"Cleaning"` (kitchen hood cleaning service)
+
+2. **Redundant set-aside keywords**: Keywords like `"veteran"`, `"small business"`, `"sdvosb"` appeared in the set-aside boilerplate text ("Service-Disabled Veteran-Owned Small Business"), giving every SDVOSB opportunity automatic keyword credit — but set-aside scoring already captures this.
+
+3. **Misconfigured weights in .env**: Legacy weights (`BUDGET_WEIGHT=0.4`, `CLIENT_WEIGHT=0.4`, `KEYWORD_WEIGHT=0.2`) contradicted Phase 1 design (50% keyword, 25% phase, 25% set-aside, 0% budget/client). Total was 1.5, causing normalization issues.
+
+### Changes Made
+- `src/scoring/scorer.py`: Added `_word_match()` helper using regex word boundaries (`\b`) instead of substring matching
+- `src/scoring/scorer.py`: Added `import re`
+- `src/config.py`: Removed redundant keywords already captured by set-aside scoring: `"small business"`, `"veteran"`, `"sdvosb"`, `"8a"`, `"hubzone"`
+- `.env`: Fixed weights to match Phase 1 design: `KEYWORD_WEIGHT=0.5`, `PHASE_WEIGHT=0.25`, `SETASIDE_WEIGHT=0.25`, `BUDGET_WEIGHT=0.0`, `CLIENT_WEIGHT=0.0`
+
+### Results
+| Opportunity Type | Before | After |
+|-----------------|--------|-------|
+| Fire Extinguisher (physical) | 67.3 | **45.0** |
+| Chilled Water Valve (physical) | 60.7 | **45.0** |
+| Network Engineering (IT) | 67.3 | **87.5** |
+| IT Modernization (IT) | — | **100.0** |
+
+Physical infrastructure now scores 45 (below `MIN_SCORE=60` threshold), while IT opportunities score 87-100. **42-55 point gap** ensures proper filtering.
+
+### Tests
+All 19 tests passing.

@@ -241,7 +241,6 @@ KEYWORDS = {
         "cloud native",
     ],
     "smb_focus": [
-        "small business",
         "smb",
         "sme",
         "startup",
@@ -258,10 +257,6 @@ KEYWORDS = {
         "dod",
         "defense",
         "va",
-        "veteran",
-        "sdvosb",
-        "8a",
-        "hubzone",
         "contract",
         "task order",
         "idiq",
